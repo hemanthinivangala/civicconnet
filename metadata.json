@@ -1,0 +1,6 @@
+{
+  "name": "CivicConnect - Municipal Services & Civic Portal",
+  "description": "Comprehensive municipal services portal for citizens to report civic problems, track complaints, view ward information, check garbage collection schedules, and access city services.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
