@@ -251,6 +251,10 @@ Output STRICT JSON only:
   return categorizeComplaintKeywords(combined);
 }
 
+// n8n AI Agent Webhook Endpoint
+export const N8N_WEBHOOK_CHAT_URL =
+  'https://hemanthinivangala.app.n8n.cloud/webhook/e84bc967-5dc7-4e3f-acbf-dcfa8bbff6c8/chat';
+
 // CivicAssist Engine
 export interface CivicAssistContext {
   services: Service[];
@@ -259,16 +263,127 @@ export interface CivicAssistContext {
   schedules: GarbageSchedule[];
 }
 
+export async function sendKnowledgeToN8n(context: CivicAssistContext): Promise<{ success: boolean; message: string }> {
+  try {
+    const payload = {
+      event: 'MUNICIPAL_DATA_SYNC',
+      timestamp: new Date().toISOString(),
+      departments: context.services.map((s) => ({ id: s.id, name: s.name, dept: s.departmentName })),
+      wards: context.wards.map((w) => ({ number: w.number, name: w.name, zone: w.zone, councillor: w.councillorName })),
+      services: context.services.map((s) => ({
+        id: s.id,
+        name: s.name,
+        category: s.category,
+        description: s.description,
+        requiredDocuments: s.requiredDocuments,
+        steps: s.applicationSteps,
+        department: s.departmentName,
+      })),
+      offices: context.offices.map((o) => ({
+        name: o.name,
+        address: o.address,
+        phone: o.phone,
+        workingHours: o.workingHours,
+        services: o.servicesAvailable,
+      })),
+      schedules: context.schedules.map((sc) => ({
+        ward: sc.wardName,
+        locality: sc.localityName,
+        days: sc.collectionDays,
+        time: sc.timeSlot,
+        vehicle: sc.vehicleNumber,
+      })),
+    };
+
+    const res = await fetch(N8N_WEBHOOK_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      return { success: true, message: 'Municipal dataset successfully transmitted to your n8n AI Agent webhook!' };
+    } else {
+      return { success: false, message: `n8n webhook responded with status ${res.status}` };
+    }
+  } catch (err: any) {
+    return { success: false, message: `Failed to reach n8n webhook: ${err.message}` };
+  }
+}
+
 export async function askCivicAssist(
   userQuery: string,
   context: CivicAssistContext
-): Promise<{ text: string; quickActions?: { label: string; action: string }[] }> {
+): Promise<{ text: string; source?: 'n8n' | 'gemini' | 'local'; quickActions?: { label: string; action: string }[] }> {
   const q = userQuery.toLowerCase().trim();
 
   // Guardrail check: Disclaim any fee/law invention
   const disclaimerNote = '\n\n*Note: Official statutory fees, legal deadlines, and regulatory policies must be verified directly with the municipal registrar or official municipal portal.*';
 
-  // 1. Birth certificate inquiries
+  // 1. Try Live n8n AI Agent Webhook first!
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+    const n8nResponse = await fetch(N8N_WEBHOOK_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/plain, */*',
+      },
+      body: JSON.stringify({
+        chatInput: userQuery,
+        message: userQuery,
+        query: userQuery,
+        sessionId: 'civicconnect-user-session',
+        timestamp: new Date().toISOString(),
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (n8nResponse.ok) {
+      const contentType = n8nResponse.headers.get('content-type') || '';
+      let replyText = '';
+
+      if (contentType.includes('application/json')) {
+        const data = await n8nResponse.json();
+        // Support common n8n AI agent response shapes: { output: ... }, { text: ... }, { message: ... }, { response: ... }, or array [{ output: ... }]
+        if (typeof data === 'string') {
+          replyText = data;
+        } else if (Array.isArray(data) && data.length > 0) {
+          replyText = data[0].output || data[0].text || data[0].message || data[0].response || JSON.stringify(data[0]);
+        } else if (typeof data === 'object' && data !== null) {
+          replyText = data.output || data.text || data.message || data.response || data.result || '';
+          if (!replyText && data.answer) replyText = data.answer;
+          if (!replyText) replyText = JSON.stringify(data);
+        }
+      } else {
+        replyText = await n8nResponse.text();
+      }
+
+      if (replyText && replyText.trim()) {
+        return {
+          text: replyText.trim() + disclaimerNote,
+          source: 'n8n',
+          quickActions: [
+            { label: 'Report a Problem', action: 'report' },
+            { label: 'Find a Service', action: 'services' },
+            { label: 'Track Complaint', action: 'track' },
+            { label: 'Find Office', action: 'offices' },
+            { label: 'Garbage Schedule', action: 'garbage' },
+          ],
+        };
+      }
+    }
+  } catch (n8nErr) {
+    console.info('n8n webhook query bypassed or unavailable, using municipal knowledge base:', n8nErr);
+  }
+
+  // 2. Birth certificate inquiries
   if (q.includes('birth certificate') || q.includes('birth cert')) {
     const srv = context.services.find((s) => s.id === 'srv-3');
     return {

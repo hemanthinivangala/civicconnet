@@ -23,6 +23,8 @@ import { TransparencyView } from './components/citizen/TransparencyView';
 import { NotificationsView } from './components/citizen/NotificationsView';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { FieldWorkerDashboard } from './components/worker/FieldWorkerDashboard';
+import { AIAgentView } from './components/citizen/AIAgentView';
+import { N8nChatWidget } from './components/common/N8nChatWidget';
 
 function MainApp() {
   const { activeRole, currentUser } = useCivic();
@@ -150,7 +152,14 @@ function MainApp() {
         {currentView === 'worker' && (
           <FieldWorkerDashboard onNavigate={handleNavigate} />
         )}
+
+        {currentView === 'ai-agent' && (
+          <AIAgentView onNavigate={handleNavigate} />
+        )}
       </main>
+
+      {/* Official n8n Chat Agent Widget */}
+      <N8nChatWidget />
 
       {/* Footer */}
       <Footer onNavigate={handleNavigate} />

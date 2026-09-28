@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useCivic } from '../../context/CivicContext';
-import { askCivicAssist } from '../../services/aiClassifier';
-import { Bot, X, Send, Sparkles, AlertCircle, RefreshCw } from 'lucide-react';
+import { askCivicAssist, sendKnowledgeToN8n, N8N_WEBHOOK_CHAT_URL } from '../../services/aiClassifier';
+import { Bot, X, Send, Sparkles, AlertCircle, RefreshCw, Zap, UploadCloud, CheckCircle2 } from 'lucide-react';
 
 interface CivicAssistWidgetProps {
   onNavigate: (view: string, detailId?: string) => void;
@@ -14,6 +14,7 @@ interface ChatMessage {
   sender: 'user' | 'assistant';
   text: string;
   timestamp: string;
+  source?: 'n8n' | 'gemini' | 'local';
   quickActions?: { label: string; action: string }[];
 }
 
@@ -25,16 +26,19 @@ export const CivicAssistWidget: React.FC<CivicAssistWidgetProps> = ({
   const { services, wards, offices, garbageSchedules } = useCivic();
 
   const [isOpen, setIsOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'init-1',
       sender: 'assistant',
-      text: `Hello! I am **CivicAssist**, the official digital municipal guide for CivicConnect.
+      text: `Hello! I am **CivicAssist**, connected with your **n8n AI Agent** & municipal records.
 
 You can ask me questions about city services, required certificates, reporting road hazards, or garbage collection routes.
 
 *Quick suggestion: Click any prompt below to get started!*`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      source: 'local',
       quickActions: [
         { label: 'How to apply for Birth Certificate?', action: 'query:How can I apply for a birth certificate?' },
         { label: 'How to report a pothole?', action: 'query:How do I report a pothole?' },
@@ -61,6 +65,20 @@ You can ask me questions about city services, required certificates, reporting r
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, activeOpen]);
+
+  const handleSyncToN8n = async () => {
+    setIsSyncing(true);
+    setSyncStatus('Sending data to n8n...');
+    const result = await sendKnowledgeToN8n({
+      services,
+      wards,
+      offices,
+      schedules: garbageSchedules,
+    });
+    setIsSyncing(false);
+    setSyncStatus(result.message);
+    setTimeout(() => setSyncStatus(null), 4000);
+  };
 
   const handleSendMessage = async (queryText?: string) => {
     const textToSend = (queryText || input).trim();
@@ -90,6 +108,7 @@ You can ask me questions about city services, required certificates, reporting r
         sender: 'assistant',
         text: result.text,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        source: result.source || 'local',
         quickActions: result.quickActions,
       };
 
@@ -212,6 +231,15 @@ You can ask me questions about city services, required certificates, reporting r
 
             <div className="flex items-center gap-1">
               <button
+                onClick={handleSyncToN8n}
+                disabled={isSyncing}
+                title="Send full website dataset to your n8n AI Agent webhook"
+                className="text-xs bg-white/10 hover:bg-white/20 text-emerald-300 font-semibold px-2 py-1 rounded-lg transition flex items-center gap-1"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync to n8n'}</span>
+              </button>
+              <button
                 onClick={handleResetChat}
                 title="Restart chat"
                 className="text-blue-200 hover:text-white p-1.5 rounded-lg transition hover:bg-white/10"
@@ -226,6 +254,13 @@ You can ask me questions about city services, required certificates, reporting r
               </button>
             </div>
           </div>
+
+          {syncStatus && (
+            <div className="bg-emerald-50 border-b border-emerald-200 px-3 py-1.5 text-[11px] text-emerald-800 font-semibold flex items-center gap-1.5 animate-in fade-in">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>{syncStatus}</span>
+            </div>
+          )}
 
           {/* Quick Action Navigation Bar */}
           <div className="bg-slate-50 border-b border-slate-200 px-3 py-2 flex items-center gap-1.5 overflow-x-auto text-[11px] font-semibold text-slate-700 scrollbar-none">
@@ -278,7 +313,15 @@ You can ask me questions about city services, required certificates, reporting r
                   <div className="whitespace-pre-line prose-xs">{m.text}</div>
                 </div>
 
-                <span className="text-[10px] text-slate-400 mt-1 px-1">{m.timestamp}</span>
+                <div className="flex items-center gap-2 mt-1 px-1">
+                  <span className="text-[10px] text-slate-400">{m.timestamp}</span>
+                  {m.source === 'n8n' && (
+                    <span className="text-[9px] uppercase font-bold tracking-wider text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                      <Zap className="w-2.5 h-2.5 text-purple-600" />
+                      n8n Agent
+                    </span>
+                  )}
+                </div>
 
                 {/* Quick actions chips */}
                 {m.quickActions && m.quickActions.length > 0 && (
@@ -332,7 +375,10 @@ You can ask me questions about city services, required certificates, reporting r
             </form>
 
             <div className="text-[10px] text-slate-400 mt-1.5 flex items-center justify-between px-1">
-              <span>Grounding: Municipal records only</span>
+              <span className="flex items-center gap-1 text-slate-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Webhook: n8n AI Agent Connected
+              </span>
               <span>CivicConnect SafeGuard</span>
             </div>
           </div>

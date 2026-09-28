@@ -63,6 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'announcements', label: 'Announcements' },
     { id: 'offices', label: 'Offices' },
     { id: 'transparency', label: 'Transparency' },
+    { id: 'ai-agent', label: 'AI Agent (n8n)' },
   ];
 
   // Specific role links
